@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
 # Перечень ВСЕХ пользователей
 
-import sys, argparse
-from _datetime import datetime, timedelta, date
-import os
-from mysql.connector import MySQLConnection, Error
-from collections import OrderedDict
 import openpyxl
 from pymongo import MongoClient
 import psycopg2
@@ -17,7 +12,7 @@ MYSQL_DBS = ['passport_service', 'saturn_crm', 'saturn_fin']
 cfg = read_config(filename='menty.ini', section='postgresql')
 conn = psycopg2.connect(**cfg)
 
-#Наследование по Организациям
+# Наследование по Организациям
 division_closure = {}
 cursorA = conn.cursor()
 cursorA.execute('SELECT descendant, ancestor, depth FROM division_closure -- WHERE depth > 0 ORDER BY depth DESC')
@@ -53,49 +48,64 @@ for division in divisions:
                 divisions[division]['product_access'] = product_access_tek
                 break
 
-q=0
+# Таблицы access_group
+cursorB = conn.cursor()
+cursorB.execute('SELECT ua.user_id, ag.title, ag.content FROM user_access_group AS ua '
+                'LEFT JOIN access_group AS ag ON ua.access_group_id = ag.id')
+user_access_groups = {}
+for row in cursorB:
+    if user_access_groups.get(row[0]):
+        user_access_groups[row[0]] += ', ' + str(row[1])
+    else:
+        user_access_groups[row[0]] = str(row[1])
 
-
+# Все пользователи
+cursorC = conn.cursor()
+cursorC.execute('SELECT ac.id, ac.roles, ac.division_id, ac.passport_main_id, ac.passport_registration_id, '
+                'ac.insurance_document_id, ac.lastname, ac.name, ac.middlename, ac.phone, ac.email, ac.username, '
+                'ac.insurance, at.title '
+                'FROM account AS ac LEFT JOIN access_template AS at ON ac.access_template_id = at.id')
+acc = {}
+for row in cursorC:
+    acc[row[0]] = {}
+    if row[2]:
+        acc[row[0]]['Подразделение'] =  divisions[row[2]]['title']
+        acc[row[0]]['Доступ к продуктам'] = ' '.join(divisions[row[2]]['product_access'])
+    else:
+        acc[row[0]]['Подразделение'] =  'Не выбрано'
+        acc[row[0]]['Доступ к продуктам'] = 'Нет'
+    if row[3]:
+        acc[row[0]]['паспорт-титульник'] = 'Есть'
+    else:
+        acc[row[0]]['паспорт-титульник'] = 'Нет'
+    if row[4]:
+        acc[row[0]]['паспорт-регистрация'] = 'Есть'
+    else:
+        acc[row[0]]['паспорт-регистрация'] = 'Нет'
+    if row[5]:
+        acc[row[0]]['скан СНИЛС'] = 'Есть'
+    else:
+        acc[row[0]]['скан СНИЛС'] = 'Нет'
+    acc[row[0]]['Фамилия'] = row[6]
+    acc[row[0]]['Имя'] = row[7]
+    acc[row[0]]['Отчество'] = row[8]
+    acc[row[0]]['Телефон'] = row[9]
+    acc[row[0]]['E-mail'] = row[10]
+    acc[row[0]]['Логин пользователя'] = row[11]
+    acc[row[0]]['СНИЛС'] = row[12]
+    acc[row[0]]['Должность'] = row[13]
+    if user_access_groups.get(row[0]):
+        acc[row[0]]['Роль'] = user_access_groups[row[0]]
+    else:
+        acc[row[0]]['Роль'] = ''
 
 wb_rez = openpyxl.Workbook(write_only=True)
 ws_rez = wb_rez.create_sheet('Список пользователей')
-ws_rez.append(['id', 'Фамилия', 'Имя', 'Отчество', 'Телефон', 'E-mail', 'Логин пользователя', 'СНИЛС', 'Подразделение',
-               'Доступ к продуктам','паспорт-титульник', 'паспорт-регистрация','СНИЛС'])
-
-conn = psycopg2.connect(**cfg)
-tables_cursor = conn.cursor()
-sql = "SELECT table_name FROM information_schema.tables WHERE table_schema NOT IN " \
-      "('information_schema','pg_catalog') AND table_schema IN('public', 'myschema')"
-tables_cursor.execute(sql)
-cursor = conn.cursor()
-ws_rez.append(wb_rez.create_sheet('ЧтобыРаботало'))
-ws_rez.append(wb_rez.create_sheet('Postgresql'))
-for table_row in tables_cursor:
-    cursor.execute('SELECT * FROM ' + table_row[0] + ' LIMIT 2')
-    col_names = [desc[0] for desc in cursor.description]
-    cursor.execute('SELECT * FROM ' + table_row[0] + ' ORDER BY ' + col_names[0] + ' DESC LIMIT 5')
-    ws_rez[len(ws_rez) - 1].append([])
-    ws_rez[len(ws_rez) - 1].append([table_row[0]])
-    ws_rez[len(ws_rez) - 1].append(col_names)
-    cycled = False
-    for row in cursor:
-        col_rez = []
-        cycled = True
-        for j, col_name in enumerate(col_names):
-            if row[j]:
-                if str(type(row[j])).find('str') < 0:
-                    col_rez.append(str(row[j]))
-                else:
-                    col_rez.append(row[j])
-            else:
-                col_rez.append('--пусто--')
-        ws_rez[len(ws_rez) - 1].append(col_rez)
-    if not cycled:
-        col_rez = []
-        for j, col_name in enumerate(col_names):
-            col_rez.append('--пусто--')
-        ws_rez[len(ws_rez) - 1].append(col_rez)
-
-"""
-wb_rez.save(datetime.now().strftime('%Y-%m-%d_%H-%M') + 'databases.xlsx')
-"""
+ws_rez.append(['id', 'Фамилия', 'Имя', 'Отчество', 'Телефон', 'E-mail', 'Логин пользователя', 'СНИЛС', 'Должность',
+               'Роль', 'Подразделение', 'паспорт-титульник', 'паспорт-регистрация','скан СНИЛС', 'Доступ к продуктам'])
+for a in acc:
+    ws_rez.append([a, acc[a]['Фамилия'], acc[a]['Имя'], acc[a]['Отчество'], acc[a]['Телефон'],
+                   acc[a]['E-mail'], acc[a]['Логин пользователя'], acc[a]['СНИЛС'], acc[a]['Должность'],
+                   acc[a]['Роль'], acc[a]['Подразделение'], acc[a]['паспорт-титульник'], acc[a]['паспорт-регистрация'],
+                   acc[a]['скан СНИЛС'], acc[a]['Доступ к продуктам']])
+wb_rez.save('users.xlsx')
